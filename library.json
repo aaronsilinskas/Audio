@@ -1,5 +1,5 @@
 {
-  "name": "Audio",
+  "name": "AudioALS",
   "frameworks": "Arduino",
   "keywords": "sound, audio, FFT, filter, effect",
   "description": "Teensy Audio Library",
