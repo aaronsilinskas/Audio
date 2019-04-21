@@ -92,10 +92,6 @@
 #include "filter_variable.h"
 #include "input_adcs.h"
 
-#if I2S_INTERFACES_COUNT > 0
-#include "input_i2s.h"
-#endif
-
 #if 0
 #include "input_adc.h"
 #include "input_i2s_quad.h"
@@ -104,10 +100,6 @@
 
 #include "mixer.h"
 #include "output_dacs.h"
-
-#if I2S_INTERFACES_COUNT > 0
-#include "output_i2s.h"
-#endif
 
 #if 0
 #include "output_dac.h"
@@ -123,7 +115,10 @@
 
 #include "play_sd_raw.h"
 #include "play_sd_wav.h"
+
+#if 0
 #include "play_qspi_wav.h"
+#endif //0
 
 #if 0
 #include "play_serialflash_raw.h"

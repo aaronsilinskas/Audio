@@ -24,8 +24,8 @@
  * THE SOFTWARE.
  */
 
-#include "analyze_fft256.h"
-#include "sqrt_integer.h"
+#include "analyze_fft1024.h"
+#include "utility/sqrt_integer.h"
 #include "utility/dspinst.h"
 
 
@@ -45,84 +45,86 @@ static void apply_window_to_fft_buffer(void *buffer, const void *window)
 	int16_t *buf = (int16_t *)buffer;
 	const int16_t *win = (int16_t *)window;;
 
-	for (int i=0; i < 256; i++) {
+	for (int i=0; i < 1024; i++) {
 		int32_t val = *buf * *win++;
 		//*buf = signed_saturate_rshift(val, 16, 15);
 		*buf = val >> 15;
 		buf += 2;
 	}
+
 }
 
-void AudioAnalyzeFFT256::update(void)
+void AudioAnalyzeFFT1024::update(void)
 {
 	audio_block_t *block;
 
 	block = receiveReadOnly();
 	if (!block) return;
-#if AUDIO_BLOCK_SAMPLES == 128
-	if (!prevblock) {
-		prevblock = block;
-		return;
-	}
-	copy_to_fft_buffer(buffer, prevblock->data);
-	copy_to_fft_buffer(buffer+256, block->data);
-	//window = AudioWindowBlackmanNuttall256;
-	//window = NULL;
-	if (window) apply_window_to_fft_buffer(buffer, window);
-	arm_cfft_radix4_q15(&fft_inst, buffer);
-	// G. Heinzel's paper says we're supposed to average the magnitude
-	// squared, then do the square root at the end.
-	if (count == 0) {
-		for (int i=0; i < 128; i++) {
-			uint32_t tmp = *((uint32_t *)buffer + i);
-			uint32_t magsq = multiply_16tx16t_add_16bx16b(tmp, tmp);
-			sum[i] = magsq / naverage;
-		}
-	} else {
-		for (int i=0; i < 128; i++) {
-			uint32_t tmp = *((uint32_t *)buffer + i);
-			uint32_t magsq = multiply_16tx16t_add_16bx16b(tmp, tmp);
-			sum[i] += magsq / naverage;
-		}
-	}
-	if (++count == naverage) {
-		count = 0;
-		for (int i=0; i < 128; i++) {
-			output[i] = sqrt_uint32_approx(sum[i]);
-		}
-		outputflag = true;
-	}
-	release(prevblock);
-	prevblock = block;
-#elif AUDIO_BLOCK_SAMPLES == 64
-	if (prevblocks[2] == NULL) {
-		prevblocks[2] = prevblocks[1];
-		prevblocks[1] = prevblocks[0];
-		prevblocks[0] = block;
-		return;
-	}
-	if (count == 0) {
-		count = 1;
-		copy_to_fft_buffer(buffer, prevblocks[2]->data);
-		copy_to_fft_buffer(buffer+128, prevblocks[1]->data);
-		copy_to_fft_buffer(buffer+256, prevblocks[1]->data);
-		copy_to_fft_buffer(buffer+384, block->data);
+
+#if defined(KINETISK) || defined(__SAMD51__)
+	switch (state) {
+	case 0:
+		blocklist[0] = block;
+		state = 1;
+		break;
+	case 1:
+		blocklist[1] = block;
+		state = 2;
+		break;
+	case 2:
+		blocklist[2] = block;
+		state = 3;
+		break;
+	case 3:
+		blocklist[3] = block;
+		state = 4;
+		break;
+	case 4:
+		blocklist[4] = block;
+		state = 5;
+		break;
+	case 5:
+		blocklist[5] = block;
+		state = 6;
+		break;
+	case 6:
+		blocklist[6] = block;
+		state = 7;
+		break;
+	case 7:
+		blocklist[7] = block;
+		// TODO: perhaps distribute the work over multiple update() ??
+		//       github pull requsts welcome......
+		copy_to_fft_buffer(buffer+0x000, blocklist[0]->data);
+		copy_to_fft_buffer(buffer+0x100, blocklist[1]->data);
+		copy_to_fft_buffer(buffer+0x200, blocklist[2]->data);
+		copy_to_fft_buffer(buffer+0x300, blocklist[3]->data);
+		copy_to_fft_buffer(buffer+0x400, blocklist[4]->data);
+		copy_to_fft_buffer(buffer+0x500, blocklist[5]->data);
+		copy_to_fft_buffer(buffer+0x600, blocklist[6]->data);
+		copy_to_fft_buffer(buffer+0x700, blocklist[7]->data);
 		if (window) apply_window_to_fft_buffer(buffer, window);
 		arm_cfft_radix4_q15(&fft_inst, buffer);
-	} else {
-		count = 2;
-		const uint32_t *p = (uint32_t *)buffer;
-		for (int i=0; i < 128; i++) {
-			uint32_t tmp = *p++;
-			int16_t v1 = tmp & 0xFFFF;
-			int16_t v2 = tmp >> 16;
-			output[i] = sqrt_uint32_approx(v1 * v1 + v2 * v2);
+		// TODO: support averaging multiple copies
+		for (int i=0; i < 512; i++) {
+			uint32_t tmp = *((uint32_t *)buffer + i); // real & imag
+			uint32_t magsq = multiply_16tx16t_add_16bx16b(tmp, tmp);
+			output[i] = sqrt_uint32_approx(magsq);
 		}
+		outputflag = true;
+		release(blocklist[0]);
+		release(blocklist[1]);
+		release(blocklist[2]);
+		release(blocklist[3]);
+		blocklist[0] = blocklist[4];
+		blocklist[1] = blocklist[5];
+		blocklist[2] = blocklist[6];
+		blocklist[3] = blocklist[7];
+		state = 4;
+		break;
 	}
-	release(prevblocks[2]);
-	prevblocks[2] = prevblocks[1];
-	prevblocks[1] = prevblocks[0];
-	prevblocks[0] = block;
+#else
+	release(block);
 #endif
 }
 
